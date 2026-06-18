@@ -1,0 +1,68 @@
+import math
+from groq import Groq
+
+def tokenize(text):
+    return [word.lower().strip(".,!?\"()—") for word in text.split() if len(word) > 2]
+
+def calculate_cosine_similarity(query, doc_text):
+    query_words = tokenize(query)
+    doc_words = tokenize(doc_text)
+    
+    if not query_words or not doc_words:
+        return 0.0
+        
+    all_words = set(query_words + doc_words)
+    
+    query_vector = [query_words.count(word) for word in all_words]
+    doc_vector = [doc_words.count(word) for word in all_words]
+    
+    dot_product = sum(q * d for q, d in zip(query_vector, doc_vector))
+    
+    query_len = math.sqrt(sum(q**2 for q in query_vector))
+    doc_len = math.sqrt(sum(d**2 for d in doc_vector))
+    
+    if query_len == 0 or doc_len == 0:
+        return 0.0
+        
+    return dot_product / (query_len * doc_len)
+
+def get_relevant_products(user_query, items, top_n=3):
+    scored_products = []
+    for item in items:
+        full_text = f"{item['name']} {item['category']} {item['material']} {item['description']}"
+        score = calculate_cosine_similarity(user_query, full_text)
+        if score > 0:
+            scored_products.append((score, item))
+            
+    scored_products.sort(key=lambda x: x[0], reverse=True)
+    return [item for score, item in scored_products[:top_n]]
+
+def ask_groq_stylist(api_key, user_query, relevant_items, all_items):
+    client = Groq(api_key=api_key)
+    
+    global_catalog = ", ".join([item['name'] for item in all_items])
+    
+    products_context = ""
+    for item in relevant_items:
+        products_context += f"- {item['name']} ({item['price']} тенге). Материал: {item['material']}. Описание: {item['description']}\n"
+    
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    f"Ты — профессиональный ИИ-стилист в концептуальном магазине одежды 'IZTVibe Store'. "
+                    f"Полный ассортимент нашего магазина: [{global_catalog}]. Твоя задача — помогать клиенту. "
+                    f"Если клиент просит показать всё или векторный поиск пуст, ориентируйся на этот общий список. "
+                    f"В приоритете рекомендуй товары с подробным описанием из контекста ниже. "
+                    f"Отвечай кратко, авторитетно, без лишней воды и исключительно на русском языке."
+                )
+            },
+            {
+                "role": "user",
+                "content": f"Релевантные товары с описанием:\n{products_context}\n\nЗапрос клиента: '{user_query}'"
+            }
+        ],
+        model="llama-3.1-8b-instant",
+    )
+    return chat_completion.choices[0].message.content
