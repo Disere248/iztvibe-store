@@ -1,0 +1,109 @@
+import streamlit as st
+from products import items
+from ai_logic import get_relevant_products, ask_groq_stylist
+
+st.set_page_config(page_title="IZTVibe Store", page_icon="🛍️", layout="wide")
+
+# СТИЛЬНЫЙ ДИАЛОГ
+@st.dialog("IZTVibe Store / Manifesto")
+def show_welcome_message():
+    # Меняем заголовок на ультра-минималистичный тонкий шрифт
+    st.markdown(
+        """
+        <div style='text-align: center; padding: 20px 0;'>
+            <h1 style='font-family: "Courier New", Courier, monospace; font-weight: 300; letter-spacing: 3px; margin: 0;'>
+                IZTVIBE STORE
+            </h1>
+            <p style='font-family: "Segoe UI", sans-serif; font-weight: 400; letter-spacing: 2px; color: #888; font-size: 0.9rem; margin-top: 5px;'>
+                WHERE CODE MEETS STYLE
+            </p>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+    st.write("---")
+    
+    # Текст в строгом, авторском стиле без "чат-гптшных" маркеров
+    st.markdown("""
+    Большинство современных магазинов заставляют пользователя вручную перебирать десятки фильтров, категорий и тегов. Мы пошли другим путем.
+    
+    **IZTVibe Store** — это экспериментальная площадка, где процесс выбора вещей управляется естественным языком. Под капотом приложения работают два независимых технологических слоя:
+    
+    1. **Локальный векторный поиск.** Программа не делает слепых запросов к серверу. Алгоритм косинусного сходства берет ваш текстовый запрос, разбирает его на токены и математически сопоставляет с базой данных, вытягивая позиции по скрытому контексту и смыслу.
+    2. **Инфраструктура Groq API.** Отобранный массив данных передается модели `llama-3.1-8b-instant`. Нейросеть выступает в роли персонального стилиста: она мгновенно адаптирует описание коллекций под ваш конкретный сценарий и аргументирует финальный выбор.
+    """)
+    
+    with st.expander("Сценарии для тестирования системы"):
+        st.write("Скопируйте любой промпт и отправьте его в чат после ввода API-ключа:")
+        st.code("Мне нужно что-то свободное и уютное для вечерней прогулки под прохладным дождем")
+        st.code("Посоветуй базовую легкую вещь на экстремально жаркое лето, чтобы тело дышало")
+        st.code("Хочу собрать агрессивный, дерзкий образ в темных тонах с защитой от ветра")
+    
+    st.write("---")
+    
+    st.markdown("<div style='text-align: center; color: #666; font-size: 0.8rem; margin-bottom: 15px;'>Для запуска ассистента требуется рабочий ключ Groq (gsk_...)</div>", unsafe_allow_html=True)
+    
+    if st.button("Открыть каталог", type="primary", use_container_width=True):
+        st.rerun()
+
+# Автоматический вызов при первой загрузке сессии
+if "first_visit" not in st.session_state:
+    st.session_state.first_visit = True
+
+if st.session_state.first_visit:
+    st.session_state.first_visit = False
+    show_welcome_message()
+
+
+# ИНИЦИАЛИЗАЦИЯ ИСТОРИИ ЧАТА
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+# ИНТЕРФЕЙС ГЛАВНОЙ СТРАНИЦЫ
+st.title("🛍️ IZTVibe Store")
+st.caption("Концептуальный бренд одежды с семантическим поиском и LLM-подбором на базе Groq API")
+st.write("---")
+
+# БЛОК ИИ-СТИЛИСТА
+st.header("🤖 Персональный ИИ-Стилист")
+api_key = st.text_input("Введите ваш Groq API Key (gsk_...):", type="password", help="Используется модель llama-3.1-8b-instant")
+
+st.write("### Чат со стилистом")
+for role, text in st.session_state.chat_history:
+    with st.chat_message(role):
+        st.write(text)
+        
+if user_input := st.chat_input("Например: Что взять на дождливую холодную осень?"):
+    if not api_key:
+        st.warning("Пожалуйста, укажите Groq API-ключ в поле выше.")
+    else:
+        st.session_state.chat_history.append(("user", user_input))
+        with st.chat_message("user"):
+            st.write(user_input)
+            
+        with st.chat_message("assistant"):
+            with st.spinner("Стилист анализирует коллекции..."):
+                try:
+                    matched_items = get_relevant_products(user_input, items, top_n=3)
+                    # ИСПРАВЛЕНО: добавили аргумент items в конец функции
+                    ai_response = ask_groq_stylist(api_key, user_input, matched_items, items)
+                except Exception as e:
+                    ai_response = f"Внутренняя ошибка системы: {str(e)}"
+                
+                st.write(ai_response)
+                st.session_state.chat_history.append(("assistant", ai_response))
+
+st.write("---")
+
+# ВИТРИНА ТОВАРОВ
+st.header("⚡ Актуальный каталог")
+prod_cols = st.columns(3)
+for idx, item in enumerate(items):
+    with prod_cols[idx % 3]:
+        st.markdown(f"### {item['name']}")
+        st.caption(f"Категория: {item['category']} | Материал: {item['material']}")
+        st.write(item['description'])
+        st.subheader(f"{item['price']:,} ₸")
+        if st.button("В корзину", key=f"btn_{item['id']}"):
+            st.toast(f"Товар {item['name']} добавлен в демо-корзину")
+        st.write("---")
