@@ -1,0 +1,55 @@
+import streamlit as st
+
+class SessionStateManager:
+    """
+    Архитектурный менеджер состояния сессии (Session State Manager).
+    Инкапсулирует работу с памятью Streamlit, реализуя принцип инверсии управления (IoC).
+    """
+    
+    @staticmethod
+    def initialize_state():
+        """Инициализация дефолтных параметров контекста."""
+        if "first_visit" not in st.session_state:
+            st.session_state.first_visit = True
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+        if "cart" not in st.session_state:
+            st.session_state.cart = []
+
+    @property
+    def cart(self):
+        """Получить текущую корзину."""
+        return st.session_state.cart
+
+    @property
+    def chat_history(self):
+        """Получить историю чата."""
+        return st.session_state.chat_history
+
+    def add_to_cart(self, item: dict) -> None:
+        """Добавление товара в корзину (Бизнес-логика)."""
+        st.session_state.cart.append(item)
+
+    def clear_cart(self) -> None:
+        """Полная очистка корзины."""
+        st.session_state.cart = []
+
+    def append_chat(self, role: str, text: str) -> None:
+        """Запись реплики в лог контекста."""
+        st.session_state.chat_history.append((role, text))
+
+    def clear_chat_history(self) -> None:
+        """Сброс контекстной памяти ИИ."""
+        st.session_state.chat_history = []
+
+    def get_total_price(self) -> int:
+        """Расчет агрегированной стоимости корзины."""
+        return sum(item['price'] for item in st.session_state.cart)
+
+    def is_first_visit(self) -> bool:
+        """Проверка флага первого входа."""
+        return st.session_state.first_visit
+
+    def set_visited(self) -> None:
+        """Переключение флага онбординга."""
+        st.session_state.first_visit = False
