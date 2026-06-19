@@ -2,9 +2,11 @@ import math
 from groq import Groq
 
 def tokenize(text):
+    """Очистка и разбиение текста на токены."""
     return [word.lower().strip(".,!?\"()—") for word in text.split() if len(word) > 2]
 
 def calculate_cosine_similarity(query, doc_text):
+    """Расчет косинусного сходства между запросом пользователя и описанием товара."""
     query_words = tokenize(query)
     doc_words = tokenize(doc_text)
     
@@ -27,6 +29,7 @@ def calculate_cosine_similarity(query, doc_text):
     return dot_product / (query_len * doc_len)
 
 def get_relevant_products(user_query, items, top_n=3):
+    """Поиск наиболее подходящих товаров на основе локального векторного сходства."""
     scored_products = []
     for item in items:
         full_text = f"{item['name']} {item['category']} {item['material']} {item['description']}"
@@ -37,32 +40,45 @@ def get_relevant_products(user_query, items, top_n=3):
     scored_products.sort(key=lambda x: x[0], reverse=True)
     return [item for score, item in scored_products[:top_n]]
 
-def ask_groq_stylist(api_key, user_query, relevant_items, all_items):
+def ask_groq_stylist(api_key, user_query, relevant_items, all_items, chat_history):
+    """Генерация строго структурированных рекомендаций без галлюцинаций валют."""
     client = Groq(api_key=api_key)
     
-    global_catalog = ", ".join([item['name'] for item in all_items])
+    # Формирую базу данных с жесткой фиксацией цен в тенге
+    catalog_dump = ""
+    for item in all_items:
+        catalog_dump += f"Товар: {item['name']} | Точная Цена: {item['price']} ₸ | Материал: {item['material']} | Описание: {item['description']}\n"
     
-    products_context = ""
-    for item in relevant_items:
-        products_context += f"- {item['name']} ({item['price']} тенге). Материал: {item['material']}. Описание: {item['description']}\n"
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                f"Ты — высококлассный, уверенный в себе ИИ-стилист бутика IZTVibe Store.\n"
+                f"Ты общаешься с клиентом профессионально, лаконично и авторитетно, без лишней воды.\n\n"
+                f"ЭТАЛОННЫЙ КАТАЛОГ С ЦЕНАМИ:\n{catalog_dump}\n"
+                f"ИНСТРУКЦИЯ ПО ФОРМИРОВАНИЮ ОТВЕТА:\n"
+                f"1. Цены пиши СТРОГО в тенге (₸) в полном соответствии с каталогом. Забудь про рубли и доллары.\n"
+                f"2. Если клиент спрашивает, хорошая ли вещь, не отвечай шаблонно 'нет информации'. Используй данные из каталога, чтобы подтвердить качество: подчеркни, что это плотная ткань, премиальный хлопок, плотный деним или влагозащитный нейлон.\n"
+                f"3. Твоя цель - помочь клиенту собрать стильный образ, аргументируя выбор деталями кроя и материала из каталога.\n"
+                f"4. Не придумывай несуществующие цифры или комплектации."
+            )
+        }
+    ]
     
+    # Подгружаю историю (последние 4 реплики)
+    max_history_depth = 4
+    for role, text in chat_history[-max_history_depth:]:
+        messages.append({"role": role, "content": text})
+        
+    messages.append({
+        "role": "user",
+        "content": f"Запрос пользователя: '{user_query}'"
+    })
+    
+    # Ставлю температуру в 0.0 чтобы не писал лишнее
     chat_completion = client.chat.completions.create(
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    f"Ты — профессиональный ИИ-стилист в концептуальном магазине одежды 'IZTVibe Store'. "
-                    f"Полный ассортимент нашего магазина: [{global_catalog}]. Твоя задача — помогать клиенту. "
-                    f"Если клиент просит показать всё или векторный поиск пуст, ориентируйся на этот общий список. "
-                    f"В приоритете рекомендуй товары с подробным описанием из контекста ниже. "
-                    f"Отвечай кратко, авторитетно, без лишней воды и исключительно на русском языке."
-                )
-            },
-            {
-                "role": "user",
-                "content": f"Релевантные товары с описанием:\n{products_context}\n\nЗапрос клиента: '{user_query}'"
-            }
-        ],
+        messages=messages,
         model="llama-3.1-8b-instant",
+        temperature=0.1
     )
     return chat_completion.choices[0].message.content
